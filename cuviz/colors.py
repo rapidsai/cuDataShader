@@ -164,4 +164,6 @@ def build_shades(cmap):
         idx = i * 3
         h_shades[[idx, idx + 1, idx + 2]] = color_lookup[color]
 
+    h_shades = h_shades.reshape((len(cmap), 3))
+
     return cuda.to_device(h_shades)

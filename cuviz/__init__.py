@@ -1,2 +1,2 @@
 from cuviz.core import Canvas
-from cuviz.reductions import count, sum
+from cuviz.reductions import count, sum, max

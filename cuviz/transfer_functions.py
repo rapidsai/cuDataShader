@@ -145,14 +145,17 @@ def get_min_max(val_array):
     return min, max
 
 
-def shade(agg, cmap, how):
+def shade(agg, cmap=["lightblue", "darkblue"], how='eq_hist'):
     agg_copy = agg.ravel(order='C')
 
     bpg = int(agg_copy.shape[0] / maxThreadsPerBlock) + 1
 
     min, max = get_min_max(agg_copy)
     
-    substract_k[bpg, maxThreadsPerBlock](agg_copy, min)
+    if min != max:
+        substract_k[bpg, maxThreadsPerBlock](agg_copy, min)
+    else:
+        substract_k[bpg, maxThreadsPerBlock](agg_copy, min - 0.0001) # yes, that's a hack ^^
 
     how_func = _how_lookup[how]
     how_func(agg_copy, bpg, maxThreadsPerBlock)
@@ -166,10 +169,11 @@ def shade(agg, cmap, how):
     
     blockDim = int(np.sqrt(maxThreadsPerBlock))
     tpb = (blockDim, blockDim)
-    bpg = (int(agg_copy.shape[0] / blockDim) + 1, int(agg_copy.shape[1] / blockDim) + 1)
-    img = cuda.device_array((agg_copy.shape[0], agg_copy.shape[1], 4), dtype=np.uint8)
+    height, width = agg_copy.shape
+    bpg = (int(height / blockDim) + 1, int(width / blockDim) + 1)
+    img = cuda.device_array((height, width, 4), dtype=np.uint8)
     interpolate_k[bpg, tpb](agg_copy, span, shades, img)
-
+    
     return Image(img.copy_to_host())
 
 
@@ -284,12 +288,14 @@ def spreading_k(img, mask, dest, composite_type):
             g = float(img[x, y, 1]) / 255.0
             b = float(img[x, y, 2]) / 255.0
 
-            rd = int((mask.shape[0]-1) / 2)
-            for mask_x in range(mask.shape[0]):
-                for mask_y in range(mask.shape[0]):
-                    if mask[mask_x][mask_y]:
-                        nx = int(x - rd + mask_x)
-                        ny = int(y - rd + mask_y)
+            h, w = mask.shape
+            x -= int((h-1) / 2)
+            y -= int((w-1) / 2)
+            for mask_x in range(h):
+                for mask_y in range(w):
+                    if mask[mask_x, mask_y]:
+                        nx = int(x + mask_x)
+                        ny = int(y + mask_y)
                         if nx >= 0 and nx < N and ny >= 0 and ny < M:
                             composite_k(r, g, b, a, dest[nx, ny], composite_type)
 
@@ -348,6 +354,33 @@ def dynspread(img, threshold=0.5, max_px=3, shape='circle', how='over'):
         if density(out.data) >= threshold:
             break
     return out
+
+
+@cuda.jit('void(uint8[:,:,:], uint8[:,:,:], uint8)')
+def stack_k(img, dest, composite_type):
+    x, y = cuda.grid(2)
+    N, M, channels = img.shape
+    if x >= 0 and x < N and y >= 0 and y < M:
+        r = float(img[x, y, 0]) / 255.0
+        g = float(img[x, y, 1]) / 255.0
+        b = float(img[x, y, 2]) / 255.0
+        a = float(img[x, y, 3]) / 255.0
+        composite_k(r, g, b, a, dest[x, y], composite_type)
+
+
+def stack(img1, img2, how="over"):
+    if img1.data.shape[0] != img2.data.shape[0] or img1.data.shape[1] != img2.data.shape[1]:
+        raise ValueError("Images must have same shapes")
+
+    dest = cuda.to_device(img1.data)
+    composite_kernel = _composite_op_lookup[how]
+
+    blockDim = int(np.sqrt(maxThreadsPerBlock))
+    tpb = (blockDim, blockDim)
+    bpg = (int(dest.shape[0] / blockDim) + 1, int(dest.shape[1] / blockDim) + 1)
+    stack_k[bpg, tpb](img2.data, dest, composite_kernel)
+
+    return Image(dest.copy_to_host())
 
 
 class Image():

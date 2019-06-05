@@ -2,6 +2,7 @@ from numba import cuda
 import numpy as np
 import cudf
 from numba.cuda.cudadrv.devicearray import DeviceNDArrayBase
+import math
 
 
 maxThreadsPerBlock = cuda.get_current_device().MAX_THREADS_PER_BLOCK
@@ -18,39 +19,110 @@ def memset_k(input):
 @cuda.jit('void(float64[:], float64[:], float64[:,:])')
 def count_k(x_coords, y_coords, agg):
     i = cuda.grid(1)
-    N, M = agg.shape
-    nx = x_coords[i]
-    ny = y_coords[i]
-    if nx >= 0 and nx < M and ny >= 0 and ny < N:
-        cuda.atomic.add(agg, (ny, nx), 1.0)
+    n_points = x_coords.size
+
+    if i < n_points:
+        N, M = agg.shape
+        nx = int(x_coords[i])
+        ny = int(y_coords[i])
+        if nx >= 0 and nx < M and ny >= 0 and ny < N:
+            cuda.atomic.add(agg, (ny, nx), 1.0)
+
+
+@cuda.jit('void(float64[:], float64[:], float64[:,:])')
+def any_k(x_coords, y_coords, agg):
+    i = cuda.grid(1)
+    n_points = x_coords.shape[0]
+
+    if i < n_points:
+        N, M = agg.shape
+        nx = int(x_coords[i])
+        ny = int(y_coords[i])
+        if nx >= 0 and nx < M and ny >= 0 and ny < N:
+            agg[ny, nx] = 1.0
+
+
+@cuda.jit('void(float64[:], float64[:], float64[:,:])')
+def any_lines_k(x_coords, y_coords, agg):
+    i = cuda.grid(1)
+    n_points = x_coords.shape[0]
+
+    if i < n_points - 1:
+        n1_x = x_coords[i]
+        n1_y = y_coords[i]
+        if math.isnan(n1_x) or math.isnan(n1_y):
+            return # no segment
+        n2_x = x_coords[i+1]
+        n2_y = y_coords[i+1]
+        if math.isnan(n2_x) or math.isnan(n2_x):
+            return # last point of edge, no segment to display
+
+        M, N = agg.shape
+
+        d_x = abs(n2_x - n1_x)
+        d_y = abs(n2_y - n1_y)
+
+        x, y = int(n1_x), int(n1_y)
+        s_x = -1 if n1_x > n2_x else 1
+        s_y = -1 if n1_y > n2_y else 1
+
+        if d_x > d_y:
+            err = d_x / 2.0
+            while x != n2_x:
+                if x >= 0 and x < N and y >= 0 and y < M:
+                    agg[y, x] = 1.0
+                err -= d_y
+                if err < 0:
+                    y += s_y
+                    err += d_x
+                x += s_x
+        else:
+            err = d_y / 2.0
+            while y != n2_y:
+                if x >= 0 and x < N and y >= 0 and y < M:
+                    agg[y, x] = 1.0
+                err -= d_x
+                if err < 0:
+                    x += s_x
+                    err += d_y
+                y += s_y
+        if x >= 0 and x < N and y >= 0 and y < M:     
+            agg[y, x] = 1.0
 
 
 @cuda.jit('void(float64[:], float64[:], float64[:], float64[:,:])')
 def sum_k(x_coords, y_coords, agg_data, agg):
     i = cuda.grid(1)
-    N, M = agg.shape
-    nx = x_coords[i]
-    ny = y_coords[i]
-    if nx >= 0 and nx < M and ny >= 0 and ny < N:
-        cuda.atomic.add(agg, (ny, nx), agg_data[i])
+    n_points = x_coords.shape[0]
+
+    if i < n_points:
+        N, M = agg.shape
+        nx = int(x_coords[i])
+        ny = int(y_coords[i])
+        if nx >= 0 and nx < M and ny >= 0 and ny < N:
+            cuda.atomic.add(agg, (ny, nx), agg_data[i])
 
 
 @cuda.jit('void(float64[:], float64[:], float64[:], float64[:,:])')
 def max_k(x_coords, y_coords, agg_data, agg):
     i = cuda.grid(1)
-    N, M = agg.shape
-    nx = x_coords[i]
-    ny = y_coords[i]
-    if nx >= 0 and nx < M and ny >= 0 and ny < N:
-        cuda.atomic.max(agg, (ny, nx), agg_data[i])
+    n_points = x_coords.shape[0]
+
+    if i < n_points:
+        N, M = agg.shape
+        nx = int(x_coords[i])
+        ny = int(y_coords[i])
+        if nx >= 0 and nx < M and ny >= 0 and ny < N:
+            cuda.atomic.max(agg, (ny, nx), agg_data[i])
 
 
 class Reduction:
     def __init__(self, column):
         self.column = column
 
-    def set_scheme(self, width, height, n_points):
+    def set_scheme(self, glyph_type, width, height, n_points):
         self.agg = cuda.device_array((height, width), dtype=np.float64)
+        self.glyph_type = glyph_type
         self.set_agg(width, height)
         self.tpb = maxThreadsPerBlock
         self.bpg = int(n_points / maxThreadsPerBlock) + 1
@@ -85,17 +157,29 @@ class Reduction:
 
 class count(Reduction):
     def reduct(self):
-        count_k[self.bpg, self.tpb](self.x_coords, self.y_coords, self.agg)
+        if self.glyph_type == "points":
+            count_k[self.bpg, self.tpb](self.x_coords, self.y_coords, self.agg)
+        return self.agg
+
+
+class any(Reduction):
+    def reduct(self):
+        if self.glyph_type == "points":
+            any_k[self.bpg, self.tpb](self.x_coords, self.y_coords, self.agg)
+        if self.glyph_type == "lines":
+            any_lines_k[self.bpg, self.tpb](self.x_coords, self.y_coords, self.agg)
         return self.agg
 
 
 class sum(Reduction):
     def reduct(self):
-        sum_k[self.bpg, self.tpb](self.x_coords, self.y_coords, self.agg_data, self.agg)
+        if self.glyph_type == "points":
+            sum_k[self.bpg, self.tpb](self.x_coords, self.y_coords, self.agg_data, self.agg)
         return self.agg
 
 
 class max(Reduction):
     def reduct(self):
-        max_k[self.bpg, self.tpb](self.x_coords, self.y_coords, self.agg_data, self.agg)
+        if self.glyph_type == "points":
+            max_k[self.bpg, self.tpb](self.x_coords, self.y_coords, self.agg_data, self.agg)
         return self.agg

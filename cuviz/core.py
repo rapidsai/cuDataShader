@@ -1,6 +1,6 @@
 from numba import cuda
 import numpy as np
-from cuviz.reductions import count
+from cuviz.reductions import count, any
 import cudf
 from numba.cuda.cudadrv.devicearray import DeviceNDArrayBase
 
@@ -12,7 +12,11 @@ maxThreadsPerBlock = cuda.get_current_device().MAX_THREADS_PER_BLOCK
 def map_onto_pixel(input, scale, transform):
     i = cuda.grid(1)
     if i < input.shape[0]:
-        input[i] = int((input[i] * scale) + transform)
+        val = input[i]
+        if val > -1.79e+308:
+            input[i] = int((val * scale) + transform)
+        else:
+            input[i] = np.nan
 
 
 @cuda.jit('void(float64[:], float64[:,:], int32)')
@@ -20,6 +24,7 @@ def copy_k(dst, src, idx):
     i = cuda.grid(1)
     if i < dst.shape[0]:
         dst[i] = src[i, idx]
+
 
 def device_to_device_copy(src, idx):
     n_points = src.shape[0]
@@ -113,6 +118,57 @@ class Canvas:
         map_onto_pixel[blockspergrid, maxThreadsPerBlock](x_coords, sx, tx)
         map_onto_pixel[blockspergrid, maxThreadsPerBlock](y_coords, sy, ty)
         
-        agg.set_scheme(self.plot_width, self.plot_height, len(agg_data))
+        agg.set_scheme("points", self.plot_width, self.plot_height, len(agg_data))
+        agg.set_data(x_coords, y_coords, agg_data)
+        return agg.reduct()
+
+
+    def line(self, source, x, y, agg=None, axis=0):
+        """Compute a reduction by pixel, mapping data to pixels as one or more lines.
+        Parameters
+        ----------
+        source : cudf.DataFrame
+            The input datasource.
+        x, y : str
+            Column names for the x and y coordinates of each point.
+        agg : Reduction, optional
+            Reduction to compute. Default is ``any()``.
+        axis : 0 or 1, default 0
+            Axis in source to draw lines along
+            * 0: Draw lines using data from the specified columns across
+                 all rows in source
+            * 1: Draw one line per row in source using data from the
+                 specified columns
+        """
+
+        if agg is None:
+            if isinstance(source, cudf.DataFrame):
+                agg = any(source.columns[-1])
+            elif isinstance(data, DeviceNDArrayBase):
+                agg = any(2)
+            else:
+                raise ValueError("input should be cudf DataFrame or Numba device ndarray")
+        
+        agg.validate(source)
+
+        sx, tx = self.x_st
+        sy, ty = self.y_st
+
+        if isinstance(source, cudf.DataFrame):
+            mini = np.finfo(np.float64).min
+            source.fillna({x: mini, y: mini, agg.column: mini}, inplace=True)
+            x_coords = source.as_gpu_matrix([x]).ravel(order='F')
+            y_coords = source.as_gpu_matrix([y]).ravel(order='F')
+            agg_data = source.as_gpu_matrix([agg.column]).ravel(order='F')
+        else:
+            x_coords = device_to_device_copy(source, x)
+            y_coords = device_to_device_copy(source, y)
+            agg_data = device_to_device_copy(source, agg.column)
+
+        blockspergrid = int(len(agg_data) / maxThreadsPerBlock) + 1
+        map_onto_pixel[blockspergrid, maxThreadsPerBlock](x_coords, sx, tx)
+        map_onto_pixel[blockspergrid, maxThreadsPerBlock](y_coords, sy, ty)
+        
+        agg.set_scheme("lines", self.plot_width, self.plot_height, len(agg_data))
         agg.set_data(x_coords, y_coords, agg_data)
         return agg.reduct()

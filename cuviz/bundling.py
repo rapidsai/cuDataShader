@@ -204,7 +204,7 @@ def regenerate_subdivisions(nodes, P):
     n_edges = nodes.shape[0]
     nMeasures = int(P / 2) + 1
     tpb = (int((maxThreadsPerBlock / nMeasures) / 2), nMeasures)
-    bpg = (int(n_edges / tpb[1]) + 1, 1)
+    bpg = (int(n_edges / tpb[0]) + 1, 1)
 
     nodes_copy = cuda.device_array((n_edges, nMeasures, 2), dtype=np.float64)
     copy_nodes_k[bpg, tpb](nodes, nodes_copy)
@@ -272,7 +272,7 @@ def compute_electrostatic_force_k(nodes, compatibility_matrix, forces):
         d_x /= d
         d_y /= d
         
-        if abs(d) > 0.001:
+        if abs(d) > 0.000001:
             compatibility = compatibility_matrix[x, y]
 
             f_x = (d_x / d) * compatibility
@@ -351,17 +351,25 @@ def as_edges(nodes):
     return gdf
 
 
-def fdeb_bundle(nodes, edges):
+def fdeb_bundle(nodes, edges, params=None):
     """
     Run FDEB Edge Bundling algorithm
     """
 
+    if params is None:
+        params = {
+            'C': 5,
+            'I': 50,
+            'S': 0.001,
+            'K': 0.03
+        }
+
     # initialize parameters
-    C = 5                   # number of cycles
-    I = 50                  # number of iteration steps in a cycle
-    P = 1                   # number of subdivision points
-    S = 0.001               # step size
-    K = 0.03                # stiffness factor
+    C = params['C']     # number of cycles
+    I = params['I']     # number of iteration steps in a cycle
+    P = 1               # number of subdivision points
+    S = params['S']     # step size
+    K = params['K']     # stiffness factor
 
     max_P = 2 ** (C-1)
 

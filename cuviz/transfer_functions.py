@@ -69,7 +69,7 @@ def eq_hist_k(input, cdf):
 
 def eq_hist(input, bpg, tpb):
     min, max = get_min_max(input)
-    hist = cuda.device_array(int(max), dtype=np.int32)
+    hist = cuda.to_device(np.zeros(int(np.ceil(max)), dtype=np.int32))
     bincount_k[bpg, tpb](input, hist)
     h_hist = hist.copy_to_host()
     h_cdf = np.nancumsum(h_hist) # overloaded by Numba

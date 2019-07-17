@@ -3,7 +3,7 @@ import numpy as np
 from cuviz.reductions import count, any
 import cudf
 from numba.cuda.cudadrv.devicearray import DeviceNDArrayBase
-from math import log
+from math import ceil, log
 
 
 maxThreadsPerBlock = cuda.get_current_device().MAX_THREADS_PER_BLOCK
@@ -30,7 +30,7 @@ def copy_k(dst, src, idx):
 def device_to_device_copy(src, idx):
     n_points = src.shape[0]
     dst = cuda.device_array(n_points, dtype=np.float64)
-    blockspergrid = int(n_points / maxThreadsPerBlock) + 1
+    blockspergrid = int(ceil(n_points / maxThreadsPerBlock))
     copy_k[blockspergrid, maxThreadsPerBlock](dst, src, idx)
     return dst
 
@@ -64,7 +64,7 @@ class LogAxis(Axis):
                 input[i] = log(val)
 
     def data_mapper(self, x):
-        blockspergrid = int(x.shape[0] / maxThreadsPerBlock) + 1
+        blockspergrid = int(ceil(x.shape[0] / maxThreadsPerBlock))
         self.log_k[blockspergrid, maxThreadsPerBlock](x)
 
 
@@ -133,7 +133,7 @@ class Canvas:
         self.x_axis.data_mapper(x_coords)
         self.y_axis.data_mapper(y_coords)
 
-        blockspergrid = int(len(agg_data) / maxThreadsPerBlock) + 1
+        blockspergrid = int(ceil(len(agg_data) / maxThreadsPerBlock))
         map_onto_pixel[blockspergrid, maxThreadsPerBlock](x_coords, sx, tx)
         map_onto_pixel[blockspergrid, maxThreadsPerBlock](y_coords, sy, ty)
         
@@ -187,7 +187,7 @@ class Canvas:
         self.x_axis.data_mapper(x_coords)
         self.y_axis.data_mapper(y_coords)
 
-        blockspergrid = int(len(agg_data) / maxThreadsPerBlock) + 1
+        blockspergrid = int(ceil(len(agg_data) / maxThreadsPerBlock))
         map_onto_pixel[blockspergrid, maxThreadsPerBlock](x_coords, sx, tx)
         map_onto_pixel[blockspergrid, maxThreadsPerBlock](y_coords, sy, ty)
         

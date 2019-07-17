@@ -2,7 +2,7 @@ from numba import cuda
 import numpy as np
 import cudf
 from numba.cuda.cudadrv.devicearray import DeviceNDArrayBase
-import math
+from math import ceil, isnan
 
 
 maxThreadsPerBlock = cuda.get_current_device().MAX_THREADS_PER_BLOCK
@@ -50,11 +50,11 @@ def any_lines_k(x_coords, y_coords, agg):
     if i < n_points - 1:
         n1_x = x_coords[i]
         n1_y = y_coords[i]
-        if math.isnan(n1_x) or math.isnan(n1_y):
+        if isnan(n1_x) or isnan(n1_y):
             return # no segment
         n2_x = x_coords[i+1]
         n2_y = y_coords[i+1]
-        if math.isnan(n2_x) or math.isnan(n2_x):
+        if isnan(n2_x) or isnan(n2_x):
             return # last point of edge, no segment to display
 
         M, N = agg.shape
@@ -125,7 +125,7 @@ class Reduction:
         self.glyph_type = glyph_type
         self.set_agg(width, height)
         self.tpb = maxThreadsPerBlock
-        self.bpg = int(n_points / maxThreadsPerBlock) + 1
+        self.bpg = int(ceil(n_points / maxThreadsPerBlock))
 
     def set_data(self, x_coords, y_coords, agg_data):
         self.x_coords = x_coords
@@ -135,7 +135,7 @@ class Reduction:
     def set_agg(self, width, height):
         blockDim = int(np.sqrt(maxThreadsPerBlock))
         memset_tpb = (blockDim, blockDim)
-        memset_bpg = (int(height / blockDim) + 1, int(width / blockDim) + 1)
+        memset_bpg = (int(ceil(height / blockDim)), int(ceil(width / blockDim)))
         memset_k[memset_bpg, memset_tpb](self.agg)
 
     def validate(self, data):

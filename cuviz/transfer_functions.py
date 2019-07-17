@@ -3,7 +3,7 @@ from cuviz.colors import build_shades
 from PIL.Image import fromarray
 from numba import cuda
 import numpy as np
-from math import log1p
+from math import ceil, log1p
 
 
 maxThreadsPerBlock = cuda.get_current_device().MAX_THREADS_PER_BLOCK
@@ -139,7 +139,7 @@ def min_max(val_array, min_max_array):
 
 def get_min_max(val_array):
     min_max_array_gpu = cuda.to_device(np.array([np.finfo(np.float64).max, np.finfo(np.float64).min], dtype=np.float64))
-    min_max_bpg = int((val_array.size / maxThreadsPerBlock) / 16.0) + 1
+    min_max_bpg = int(ceil((val_array.size / maxThreadsPerBlock) / 16.0))
     min_max[min_max_bpg, maxThreadsPerBlock](val_array, min_max_array_gpu)
     min, max = min_max_array_gpu.copy_to_host()
     return min, max
@@ -148,7 +148,7 @@ def get_min_max(val_array):
 def shade(agg, cmap=["lightblue", "darkblue"], how='eq_hist'):
     agg_copy = agg.ravel(order='C')
 
-    bpg = int(agg_copy.shape[0] / maxThreadsPerBlock) + 1
+    bpg = int(ceil(agg_copy.shape[0] / maxThreadsPerBlock))
 
     min, max = get_min_max(agg_copy)
     
@@ -170,7 +170,7 @@ def shade(agg, cmap=["lightblue", "darkblue"], how='eq_hist'):
     blockDim = int(np.sqrt(maxThreadsPerBlock))
     tpb = (blockDim, blockDim)
     height, width = agg_copy.shape
-    bpg = (int(height / blockDim) + 1, int(width / blockDim) + 1)
+    bpg = (int(ceil(height / blockDim)), int(ceil(width / blockDim)))
     img = cuda.device_array((height, width, 4), dtype=np.uint8)
     interpolate_k[bpg, tpb](agg_copy, span, shades, img)
     
@@ -191,7 +191,7 @@ def memset_k(input):
 def memset(input):
     blockDim = int(np.sqrt(maxThreadsPerBlock))
     tpb = (blockDim, blockDim)
-    bpg = (int(input.shape[0] / blockDim) + 1, int(input.shape[1] / blockDim) + 1)
+    bpg = (int(ceil(input.shape[0] / blockDim)), int(ceil(input.shape[1] / blockDim)))
     memset_k[bpg, tpb](input)
 
 
@@ -309,7 +309,7 @@ def spread(img, px=1, shape='circle', how='over'):
 
     blockDim = int(np.sqrt(maxThreadsPerBlock) / 3.0) # not using maxThreadsPerBlock to have enough memory
     tpb = (blockDim, blockDim)
-    bpg = (int(img.data.shape[0] / blockDim) + 1, int(img.data.shape[1] / blockDim) + 1)
+    bpg = (int(ceil(img.data.shape[0] / blockDim)), int(ceil(img.data.shape[1] / blockDim)))
 
     mask = _mask_lookup[shape](px)
     dest = cuda.device_array(img.data.shape, dtype=np.uint8)
@@ -337,7 +337,7 @@ def density_k(src, counters):
 def density(src):
     blockDim = int(np.sqrt(maxThreadsPerBlock))
     tpb = (blockDim, blockDim)
-    bpg = (int(src.shape[0] / blockDim) + 1, int(src.shape[1] / blockDim) + 1)
+    bpg = (int(ceil(src.shape[0] / blockDim)), int(ceil(src.shape[1] / blockDim)))
     counters = cuda.to_device(np.zeros(2, dtype=np.float64))
     density_k[bpg, tpb](src, counters)
     cnt, total = counters.copy_to_host()
@@ -377,7 +377,7 @@ def stack(img1, img2, how="over"):
 
     blockDim = int(np.sqrt(maxThreadsPerBlock))
     tpb = (blockDim, blockDim)
-    bpg = (int(dest.shape[0] / blockDim) + 1, int(dest.shape[1] / blockDim) + 1)
+    bpg = (int(ceil(dest.shape[0] / blockDim)), int(ceil(dest.shape[1] / blockDim)))
     stack_k[bpg, tpb](img2.data, dest, composite_kernel)
 
     return Image(dest.copy_to_host())

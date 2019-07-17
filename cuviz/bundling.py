@@ -1,7 +1,7 @@
 from numba import cuda
 import numpy as np
 import cudf
-import math
+from math import ceil, sqrt
 
 maxThreadsPerBlock = cuda.get_current_device().MAX_THREADS_PER_BLOCK
 
@@ -30,7 +30,7 @@ def connect_edges(nodes, edges):
     n_edges = edges.shape[0]
     connected_nodes = cuda.device_array((n_edges * 3, 2), dtype=np.float64)
 
-    bpg = int(n_edges / maxThreadsPerBlock) + 1
+    bpg = int(ceil(n_edges / maxThreadsPerBlock))
     connect_edges_k[bpg, maxThreadsPerBlock](nodes, edges, connected_nodes)
     gdf = cudf.DataFrame.from_gpu_matrix(connected_nodes)
     gdf.rename({0: 'x', 1: 'y'}, copy=False, inplace=True)
@@ -53,7 +53,7 @@ def connect_nodes_k(nodes_original, edges, nodes):
 
 def connect_nodes(nodes_original, edges, nodes):
     n_edges = edges.shape[0]
-    bpg = int(n_edges / maxThreadsPerBlock) + 1
+    bpg = int(ceil(n_edges / maxThreadsPerBlock))
     connect_nodes_k[bpg, maxThreadsPerBlock](nodes_original, edges, nodes)
 
 
@@ -67,13 +67,13 @@ def compute_stiffness_k(nodes, K, stiffness):
         v2_x = nodes[i, 1, 0]
         v2_y = nodes[i, 1, 1]
 
-        P_length = math.sqrt(((v1_x - v2_x) ** 2.0) + ((v1_y - v2_y) ** 2.0))
+        P_length = sqrt(((v1_x - v2_x) ** 2.0) + ((v1_y - v2_y) ** 2.0))
         stiffness[i] = K / P_length
 
 
 def compute_stiffness(nodes, K, stiffness):
     n_edges = nodes.shape[0]
-    bpg = int(n_edges / maxThreadsPerBlock) + 1
+    bpg = int(ceil(n_edges / maxThreadsPerBlock))
     compute_stiffness_k[bpg, maxThreadsPerBlock](nodes, K, stiffness)
 
 
@@ -97,8 +97,8 @@ def compatibility_k(nodes, c_matrix):
         d2_x = v3_x - v4_x
         d2_y = v3_y - v4_y
 
-        P_length = math.sqrt((d1_x ** 2.0) + (d1_y ** 2.0))
-        Q_length = math.sqrt((d2_x ** 2.0) + (d2_y ** 2.0))
+        P_length = sqrt((d1_x ** 2.0) + (d1_y ** 2.0))
+        Q_length = sqrt((d2_x ** 2.0) + (d2_y ** 2.0))
         avg_length = (P_length + Q_length) / 2.0
 
         total_compatibility = 1.0
@@ -115,7 +115,7 @@ def compatibility_k(nodes, c_matrix):
         pm_y = (v1_y + v2_y) / 2.0
         qm_x = (v3_x + v4_x) / 2.0
         qm_y = (v3_y + v4_y) / 2.0
-        dist = math.sqrt(((pm_x - qm_x) ** 2.0) + ((pm_y - qm_y) ** 2.0))
+        dist = sqrt(((pm_x - qm_x) ** 2.0) + ((pm_y - qm_y) ** 2.0))
         total_compatibility *= avg_length / (avg_length + dist)
 
         # visibility compatibility TODO
@@ -126,9 +126,9 @@ def compatibility_k(nodes, c_matrix):
 
 def compute_compatibility_matrix(nodes):
     n_edges = int(nodes.shape[0])
-    blockDim = int(np.sqrt(maxThreadsPerBlock) / 2) # to get enough ressources
+    blockDim = int(sqrt(maxThreadsPerBlock) / 2) # to get enough ressources
     tpb = (blockDim, blockDim)
-    gridDim = int(n_edges / blockDim) + 1
+    gridDim = int(ceil(n_edges / blockDim))
     bpg = (gridDim, gridDim)
     compatibility_matrix = cuda.device_array((n_edges, n_edges), dtype=np.float64)
     compatibility_k[bpg, tpb](nodes, compatibility_matrix)
@@ -165,7 +165,7 @@ def regenerate_subdivisions_k(nodes, old_nodes, P, d_xs, d_ys, segment_lengths, 
         d_y = v2_y - v1_y
         d_ys[iEdge, iSubdiv] = d_y
 
-        segment_length = math.sqrt((d_x ** 2.0) + (d_y ** 2.0))
+        segment_length = sqrt((d_x ** 2.0) + (d_y ** 2.0))
         segment_lengths[iEdge, iSubdiv] = segment_length
 
         cuda.atomic.add(edge_lengths, iEdge, segment_length)
@@ -204,7 +204,7 @@ def regenerate_subdivisions(nodes, P):
     n_edges = nodes.shape[0]
     nMeasures = int(P / 2) + 1
     tpb = (int((maxThreadsPerBlock / nMeasures) / 2), nMeasures)
-    bpg = (int(n_edges / tpb[0]) + 1, 1)
+    bpg = (int(ceil(n_edges / tpb[0])), 1)
 
     nodes_copy = cuda.device_array((n_edges, nMeasures, 2), dtype=np.float64)
     copy_nodes_k[bpg, tpb](nodes, nodes_copy)
@@ -244,7 +244,7 @@ def compute_spring_force_k(nodes, stiffness, forces):
 def compute_spring_force(nodes, P, stiffness, forces):
     n_edges = nodes.shape[0]
     tpb = maxThreadsPerBlock
-    bpg = (int(n_edges / maxThreadsPerBlock) + 1, P)
+    bpg = (int(ceil(n_edges / maxThreadsPerBlock)), P)
 
     compute_spring_force_k[bpg, tpb](nodes, stiffness, forces)
 
@@ -267,7 +267,7 @@ def compute_electrostatic_force_k(nodes, compatibility_matrix, forces):
         d_x = q_x - p_x
         d_y = q_y - p_y
 
-        d = math.sqrt((d_x ** 2.0) + (d_y ** 2.0))
+        d = sqrt((d_x ** 2.0) + (d_y ** 2.0))
 
         d_x /= d
         d_y /= d
@@ -286,9 +286,9 @@ def compute_electrostatic_force_k(nodes, compatibility_matrix, forces):
 
 def compute_electrostatic_force(nodes, P, compatibility_matrix, forces):
     n_edges = nodes.shape[0]
-    blockDim = int(np.sqrt(maxThreadsPerBlock))
+    blockDim = int(sqrt(maxThreadsPerBlock))
     tpb = (blockDim, blockDim)
-    gridDim = int(n_edges / blockDim) + 1
+    gridDim = int(ceil(n_edges / blockDim))
     bpg = (P, gridDim, gridDim)
 
     compute_electrostatic_force_k[bpg, tpb](nodes, compatibility_matrix, forces)
@@ -304,7 +304,7 @@ def update_positions_k(nodes, forces, S):
 
         f_x = forces[edge_idx, subdiv_in, 0]
         f_y = forces[edge_idx, subdiv_in, 1]
-        norm = math.sqrt((f_x ** 2.0) + (f_y ** 2.0))
+        norm = sqrt((f_x ** 2.0) + (f_y ** 2.0))
         d_x = (f_x / norm) * S
         d_y = (f_y / norm) * S
 
@@ -317,7 +317,7 @@ def update_positions_k(nodes, forces, S):
 
 def update_positions(nodes, P, forces, S):
     n_edges = nodes.shape[0]
-    bpg = (int(n_edges / maxThreadsPerBlock) + 1, P)
+    bpg = (int(ceil(n_edges / maxThreadsPerBlock)), P)
 
     update_positions_k[bpg, maxThreadsPerBlock](nodes, forces, S)
 
@@ -343,7 +343,7 @@ def as_edges(nodes):
     n_edges, P, xy = nodes.shape
     edges = cuda.device_array((n_edges * (P + 1), 2), dtype=np.float64)
 
-    bpg = (int(n_edges / maxThreadsPerBlock) + 1, P + 1)
+    bpg = (int(ceil(n_edges / maxThreadsPerBlock)), P + 1)
     as_edges_k[bpg, maxThreadsPerBlock](nodes, edges)
     
     gdf = cudf.DataFrame.from_gpu_matrix(edges)

@@ -3,6 +3,7 @@ import numpy as np
 from cuviz.reductions import count, any
 import cudf
 from numba.cuda.cudadrv.devicearray import DeviceNDArrayBase
+from math import log
 
 
 maxThreadsPerBlock = cuda.get_current_device().MAX_THREADS_PER_BLOCK
@@ -46,10 +47,25 @@ class LinearAxis(Axis):
     def mapper(self, x):
         return x
 
+    def data_mapper(self, x):
+        pass
+
 
 class LogAxis(Axis):
     def mapper(self, x):
         return np.log(x)
+
+    @cuda.jit('void(float64[:])')
+    def log_k(input):
+        i = cuda.grid(1)
+        if i < input.size:
+            val = input[i]
+            if val > -1.79e+308:
+                input[i] = log(val)
+
+    def data_mapper(self, x):
+        blockspergrid = int(x.shape[0] / maxThreadsPerBlock) + 1
+        self.log_k[blockspergrid, maxThreadsPerBlock](x)
 
 
 _axis_lookup = {'linear': LinearAxis(), 'log': LogAxis()}
@@ -114,6 +130,9 @@ class Canvas:
             y_coords = device_to_device_copy(source, y)
             agg_data = device_to_device_copy(source, agg.column)
 
+        self.x_axis.data_mapper(x_coords)
+        self.y_axis.data_mapper(y_coords)
+
         blockspergrid = int(len(agg_data) / maxThreadsPerBlock) + 1
         map_onto_pixel[blockspergrid, maxThreadsPerBlock](x_coords, sx, tx)
         map_onto_pixel[blockspergrid, maxThreadsPerBlock](y_coords, sy, ty)
@@ -164,6 +183,9 @@ class Canvas:
             x_coords = device_to_device_copy(source, x)
             y_coords = device_to_device_copy(source, y)
             agg_data = device_to_device_copy(source, agg.column)
+
+        self.x_axis.data_mapper(x_coords)
+        self.y_axis.data_mapper(y_coords)
 
         blockspergrid = int(len(agg_data) / maxThreadsPerBlock) + 1
         map_onto_pixel[blockspergrid, maxThreadsPerBlock](x_coords, sx, tx)

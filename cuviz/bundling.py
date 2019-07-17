@@ -219,7 +219,7 @@ def regenerate_subdivisions(nodes, P):
 
 @cuda.jit('void(float64[:,:,:], float64[:], float64[:,:,:])')
 def compute_spring_force_k(nodes, stiffness, forces):
-    edge_idx = cuda.blockIdx.x * cuda.gridDim.x + cuda.threadIdx.x
+    edge_idx = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
     subdiv_in = cuda.blockIdx.y + 1
     subdiv_out = cuda.blockIdx.y
 
@@ -253,8 +253,8 @@ def compute_spring_force(nodes, P, stiffness, forces):
 def compute_electrostatic_force_k(nodes, compatibility_matrix, forces):
     subdiv_in = cuda.blockIdx.x + 1
     subdiv_out = cuda.blockIdx.x
-    x = cuda.blockIdx.y * cuda.gridDim.x + cuda.threadIdx.x
-    y = cuda.blockIdx.z * cuda.gridDim.y + cuda.threadIdx.y
+    x = cuda.blockIdx.y * cuda.blockDim.x + cuda.threadIdx.x
+    y = cuda.blockIdx.z * cuda.blockDim.y + cuda.threadIdx.y
 
     N, M, xy = forces.shape
     if y < x and x < N:
@@ -296,7 +296,7 @@ def compute_electrostatic_force(nodes, P, compatibility_matrix, forces):
 
 @cuda.jit('void(float64[:,:,:], float64[:,:,:], float64)')
 def update_positions_k(nodes, forces, S):
-    edge_idx = cuda.blockIdx.x * cuda.gridDim.x + cuda.threadIdx.x
+    edge_idx = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
 
     if edge_idx < nodes.shape[0]:
         subdiv_in = cuda.blockIdx.y
@@ -324,7 +324,7 @@ def update_positions(nodes, P, forces, S):
 
 @cuda.jit('void(float64[:,:,:], float64[:,:])')
 def as_edges_k(nodes, edges):
-    edge_idx = cuda.blockIdx.x * cuda.gridDim.x + cuda.threadIdx.x
+    edge_idx = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
     subdiv_idx = cuda.blockIdx.y
     
     nEdges = nodes.shape[0]

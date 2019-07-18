@@ -1,6 +1,6 @@
 from numba import cuda
 import numpy as np
-from cuviz.reductions import count, any
+from cudatashader.reductions import count, any
 import cudf
 from numba.cuda.cudadrv.devicearray import DeviceNDArrayBase
 from math import ceil, log

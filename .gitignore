@@ -1,6 +1,6 @@
 build/
-cuviz.egg-info/
+cudatashader.egg-info/
 dist/
-cuviz/__pycache__/
+cudatashader/__pycache__/
 test.py
 pdf.pkl

@@ -1,4 +1,4 @@
-from cuviz.colors import build_shades
+from cudatashader.colors import build_shades
 
 from PIL.Image import fromarray
 from numba import cuda

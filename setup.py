@@ -1,8 +1,8 @@
 from setuptools import setup
 
-setup(name='cuviz',
+setup(name='cudatashader',
       version='0.1',
       description='GPU accelerated visualization for Data Science',
       license='NVIDIA',
-      packages=['cuviz'],
+      packages=['cudatashader'],
       zip_safe=False)

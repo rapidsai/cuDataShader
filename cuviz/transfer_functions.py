@@ -10,14 +10,14 @@ maxThreadsPerBlock = cuda.get_current_device().MAX_THREADS_PER_BLOCK
 
 
 @cuda.jit('void(float64[:], float64)')
-def substract_k(input, to_add):
+def substract_k(input, to_substract): # Substract scalar to vector
     i = cuda.grid(1)
     if i < input.size:
-        input[i] -= to_add
+        input[i] -= to_substract
 
 
 @cuda.jit('void(float64[:])')
-def log_k(input):
+def log_k(input): # Applying log on positive aggregation results
     i = cuda.grid(1)
     if i < input.size:
         val = input[i]
@@ -29,7 +29,7 @@ def log(input, bpg, tpb):
 
 
 @cuda.jit('void(float64[:])')
-def cbrt_k(input):
+def cbrt_k(input): # Applying cbrt on positive aggregation results
     i = cuda.grid(1)
     if i < input.size:
         val = input[i]
@@ -41,11 +41,11 @@ def cbrt(input, bpg, tpb):
 
 
 def linear(input, bpg, tpb):
-    pass
+    pass # No computation needed
 
 
 @cuda.jit('void(float64[:], int32[:])')
-def bincount_k(input, hist):
+def bincount_k(input, hist): # Puts input values into bins
     i = cuda.grid(1)
     if i < input.size:
         val = input[i]
@@ -54,32 +54,32 @@ def bincount_k(input, hist):
 
 
 @cuda.jit('void(float64[:], float64[:])')
-def eq_hist_k(input, cdf):
+def eq_hist_k(input, cdf): # Transform inputs
     i = cuda.grid(1)
     if i < input.size:
         val = input[i]
         if val > 0.0:
             s = int(input[i]) # start
-            e = int(input[i]) + 1 # end
+            e = s + 1 # end
             v1 = cdf[s]
             v2 = cdf[e]
             diffv = v2 - v1
-            prop = float(val - s) / 1.0
+            prop = float(val - s)
             input[i] = v1 + prop * diffv
 
 def eq_hist(input, bpg, tpb):
     min, max = get_min_max(input)
     hist = cuda.to_device(np.zeros(int(np.ceil(max)), dtype=np.int32))
-    bincount_k[bpg, tpb](input, hist)
+    bincount_k[bpg, tpb](input, hist) # Put input values into bins
     h_hist = hist.copy_to_host()
-    h_cdf = np.nancumsum(h_hist) # overloaded by Numba
-    h_cdf = h_cdf / float(h_cdf[-1])
+    h_cdf = np.nancumsum(h_hist) # Compute cumulative sum of bins
+    h_cdf = h_cdf / float(h_cdf[-1]) # Normalize by max
     cdf = cuda.to_device(h_cdf)
-    eq_hist_k[bpg, tpb](input, cdf)
+    eq_hist_k[bpg, tpb](input, cdf) # Transform inputs accordingly
 
 
 @cuda.jit('void(float64[:,:], float64[:], uint8[:,:], uint8[:,:,:])')
-def interpolate_k(input, span, rgb, out):
+def interpolate_k(input, span, rgb, out): # Compute colors from aggregation values
     x, y = cuda.grid(2)
     N, M = input.shape
     if x >= 0 and x < N and y >= 0 and y < M:
@@ -120,7 +120,7 @@ _how_lookup = {'log': log, 'cbrt': cbrt, 'linear': linear, 'eq_hist': eq_hist}
 
 
 @cuda.jit('void(float64[:], float64[:])')
-def min_max(val_array, min_max_array):
+def min_max(val_array, min_max_array): # Get positive minimum and maximum values
     start = cuda.grid(1)
     stride = cuda.gridsize(1)
 
@@ -137,7 +137,7 @@ def min_max(val_array, min_max_array):
     cuda.atomic.max(min_max_array, 1, local_max)
 
 
-def get_min_max(val_array):
+def get_min_max(val_array): # Get positive minimum and maximum values
     min_max_array_gpu = cuda.to_device(np.array([np.finfo(np.float64).max, np.finfo(np.float64).min], dtype=np.float64))
     min_max_bpg = int(ceil((val_array.size / maxThreadsPerBlock) / 16.0))
     min_max[min_max_bpg, maxThreadsPerBlock](val_array, min_max_array_gpu)
@@ -146,39 +146,40 @@ def get_min_max(val_array):
 
 
 def shade(agg, cmap=["lightblue", "darkblue"], how='eq_hist'):
-    agg_copy = agg.ravel(order='C')
+    agg_copy = agg.ravel(order='C') # Ravel aggregation data and make a copy
 
     bpg = int(ceil(agg_copy.shape[0] / maxThreadsPerBlock))
 
-    min, max = get_min_max(agg_copy)
+    min, max = get_min_max(agg_copy) # Look for min and max values
     
     if min != max:
+        # Set minimal aggregation value to 0, empty pixels become negative and are thus masked
         substract_k[bpg, maxThreadsPerBlock](agg_copy, min)
     else:
         substract_k[bpg, maxThreadsPerBlock](agg_copy, min - 0.0001) # yes, that's a hack ^^
 
     how_func = _how_lookup[how]
-    how_func(agg_copy, bpg, maxThreadsPerBlock)
+    how_func(agg_copy, bpg, maxThreadsPerBlock) # Apply how function
 
-    min, max = get_min_max(agg_copy)
+    min, max = get_min_max(agg_copy) # Look for min and max values after how transformation
 
-    agg_copy = agg_copy.reshape(agg.shape, order='C')
+    agg_copy = agg_copy.reshape(agg.shape, order='C') # Unravel aggregation data and make a copy
 
-    span = cuda.to_device(np.linspace(0.0, max, len(cmap)))
-    shades = build_shades(cmap)
+    span = cuda.to_device(np.linspace(0.0, max, len(cmap))) # Create 0 to 1 vector for different colors
+    shades = build_shades(cmap) # Get RGB values for different colors
     
     blockDim = int(np.sqrt(maxThreadsPerBlock))
     tpb = (blockDim, blockDim)
     height, width = agg_copy.shape
     bpg = (int(ceil(height / blockDim)), int(ceil(width / blockDim)))
     img = cuda.device_array((height, width, 4), dtype=np.uint8)
-    interpolate_k[bpg, tpb](agg_copy, span, shades, img)
+    interpolate_k[bpg, tpb](agg_copy, span, shades, img) # Compute colors from aggregation values
     
-    return Image(img.copy_to_host())
+    return Image(img.copy_to_host()) # Generate displayable image
 
 
 @cuda.jit('void(uint8[:,:,:])')
-def memset_k(input):
+def memset_k(input): # Memset image array to 0
     x, y = cuda.grid(2)
     N, M, channels = input.shape
     if x >= 0 and x < N and y >= 0 and y < M:
@@ -261,7 +262,7 @@ def source_k(sr, sg, sb, sa, dst):
 
 
 @cuda.jit('void(float64, float64, float64, float64, uint8[:], uint8)', device=True, inline=True)
-def composite_k(sr, sg, sb, sa, dst, composite_type):
+def composite_k(sr, sg, sb, sa, dst, composite_type): # Composite kernel
     if composite_type == 3:
         source_k(sr, sg, sb, sa, dst)
     else:
@@ -278,7 +279,7 @@ def composite_k(sr, sg, sb, sa, dst, composite_type):
 
 
 @cuda.jit('void(uint8[:,:,:], bool_[:,:], uint8[:,:,:], uint8)')
-def spreading_k(img, mask, dest, composite_type):
+def spreading_k(img, mask, dest, composite_type): # Spreading kernel
     x, y = cuda.grid(2)
     N, M, channels = img.shape
     if x >= 0 and x < N and y >= 0 and y < M:
@@ -307,21 +308,21 @@ def spread(img, px=1, shape='circle', how='over'):
     if not isinstance(img, Image):
         raise TypeError("Expected `Image`, got: `{0}`".format(type(img)))
 
-    blockDim = int(np.sqrt(maxThreadsPerBlock) / 3.0) # not using maxThreadsPerBlock to have enough memory
+    blockDim = int(np.sqrt(maxThreadsPerBlock) / 3.0) # to have enough memory per block
     tpb = (blockDim, blockDim)
     bpg = (int(ceil(img.data.shape[0] / blockDim)), int(ceil(img.data.shape[1] / blockDim)))
 
-    mask = _mask_lookup[shape](px)
-    dest = cuda.device_array(img.data.shape, dtype=np.uint8)
-    memset(dest)
+    mask = _mask_lookup[shape](px) # Generate mask
+    dest = cuda.device_array(img.data.shape, dtype=np.uint8) # Generate destination image
+    memset(dest) # Memset image to 0
     composite_kernel = _composite_op_lookup[how]
-    spreading_k[bpg, tpb](img.data, mask, dest, composite_kernel)
+    spreading_k[bpg, tpb](img.data, mask, dest, composite_kernel) # Apply composite kernel
 
-    return Image(dest.copy_to_host())
+    return Image(dest.copy_to_host()) # Generate displayable image
 
 
 @cuda.jit('void(uint8[:,:,:], float64[:])')
-def density_k(src, counters):
+def density_k(src, counters): # Compute density of image
     x, y = cuda.grid(2)
     N, M, channels = src.shape
     if x >= 0 and x < N and y >= 0 and y < M:
@@ -334,12 +335,12 @@ def density_k(src, counters):
                             cuda.atomic.add(counters, 1, 1.0)
 
 
-def density(src):
+def density(src): # Compute density of image
     blockDim = int(np.sqrt(maxThreadsPerBlock))
     tpb = (blockDim, blockDim)
     bpg = (int(ceil(src.shape[0] / blockDim)), int(ceil(src.shape[1] / blockDim)))
     counters = cuda.to_device(np.zeros(2, dtype=np.float64))
-    density_k[bpg, tpb](src, counters)
+    density_k[bpg, tpb](src, counters) # Apply density kernel
     cnt, total = counters.copy_to_host()
     return (total - cnt) / (cnt * 8.0) if cnt else np.inf
 
@@ -350,14 +351,14 @@ def dynspread(img, threshold=0.5, max_px=3, shape='circle', how='over'):
     if not isinstance(max_px, int) or max_px < 0:
         raise ValueError("max_px must be >= 0")
     for px in range(max_px + 1):
-        out = spread(img, px, shape=shape, how=how)
-        if density(out.data) >= threshold:
+        out = spread(img, px, shape=shape, how=how) # Apply spreading
+        if density(out.data) >= threshold: # Check for satisfactory density
             break
     return out
 
 
 @cuda.jit('void(uint8[:,:,:], uint8[:,:,:], uint8)')
-def stack_k(img, dest, composite_type):
+def stack_k(img, dest, composite_type): # Stack kernel
     x, y = cuda.grid(2)
     N, M, channels = img.shape
     if x >= 0 and x < N and y >= 0 and y < M:
@@ -372,15 +373,15 @@ def stack(img1, img2, how="over"):
     if img1.data.shape[0] != img2.data.shape[0] or img1.data.shape[1] != img2.data.shape[1]:
         raise ValueError("Images must have same shapes")
 
-    dest = cuda.to_device(img1.data)
+    dest = cuda.to_device(img1.data) # Generate destination image
     composite_kernel = _composite_op_lookup[how]
 
     blockDim = int(np.sqrt(maxThreadsPerBlock))
     tpb = (blockDim, blockDim)
     bpg = (int(ceil(dest.shape[0] / blockDim)), int(ceil(dest.shape[1] / blockDim)))
-    stack_k[bpg, tpb](img2.data, dest, composite_kernel)
+    stack_k[bpg, tpb](img2.data, dest, composite_kernel) # Apply stack kernel
 
-    return Image(dest.copy_to_host())
+    return Image(dest.copy_to_host()) # Generate displayable image
 
 
 class Image():

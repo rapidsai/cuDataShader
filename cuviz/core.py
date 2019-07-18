@@ -14,10 +14,10 @@ def map_onto_pixel(input, scale, transform):
     i = cuda.grid(1)
     if i < input.shape[0]:
         val = input[i]
-        if val > -1.79e+308:
-            input[i] = int((val * scale) + transform)
+        if val > -1.79e+308: # Only apply if value is not minimal (see **)
+            input[i] = int((val * scale) + transform) # Apply transformation
         else:
-            input[i] = np.nan
+            input[i] = np.nan # Reset to nan after replacement to minimal == -1.79e+308
 
 
 @cuda.jit('void(float64[:], float64[:,:], int32)')
@@ -60,7 +60,7 @@ class LogAxis(Axis):
         i = cuda.grid(1)
         if i < input.size:
             val = input[i]
-            if val > -1.79e+308:
+            if val > -1.79e+308: # Only apply if value is not minimal (see **)
                 input[i] = log(val)
 
     def data_mapper(self, x):
@@ -93,6 +93,8 @@ class Canvas:
         self.y_range = y_range
         self.x_axis = _axis_lookup[x_axis_type]
         self.y_axis = _axis_lookup[y_axis_type]
+
+        # Compute scale and transformation factors
         self.x_st = self.x_axis.compute_scale_and_translate(x_range, plot_width)
         self.y_st = self.y_axis.compute_scale_and_translate(y_range, plot_height)
 
@@ -108,6 +110,7 @@ class Canvas:
         agg : Reduction, optional
             Reduction to compute. Default is ``count()``.
         """
+        # Look for default aggregation column
         if agg is None:
             if isinstance(source, cudf.DataFrame):
                 agg = count(source.columns[-1])
@@ -116,11 +119,12 @@ class Canvas:
             else:
                 raise ValueError("input should be cudf DataFrame or Numba device ndarray")
 
-        agg.validate(source)
+        agg.validate(source) # Check source validity
 
         sx, tx = self.x_st
         sy, ty = self.y_st
 
+        # Copying columns in Numba device ndarray
         if isinstance(source, cudf.DataFrame):
             x_coords = source.as_gpu_matrix([x]).ravel(order='F')
             y_coords = source.as_gpu_matrix([y]).ravel(order='F')
@@ -130,15 +134,22 @@ class Canvas:
             y_coords = device_to_device_copy(source, y)
             agg_data = device_to_device_copy(source, agg.column)
 
+        # Apply axis transformations
         self.x_axis.data_mapper(x_coords)
         self.y_axis.data_mapper(y_coords)
 
+        # Apply scale and transform transformations
         blockspergrid = int(ceil(len(agg_data) / maxThreadsPerBlock))
         map_onto_pixel[blockspergrid, maxThreadsPerBlock](x_coords, sx, tx)
         map_onto_pixel[blockspergrid, maxThreadsPerBlock](y_coords, sy, ty)
         
+        # Sets up aggregation
         agg.set_scheme("points", self.plot_width, self.plot_height, len(agg_data))
+
+        # Sets data for aggregation
         agg.set_data(x_coords, y_coords, agg_data)
+
+        # Apply reduction
         return agg.reduct()
 
 
@@ -159,7 +170,7 @@ class Canvas:
             * 1: Draw one line per row in source using data from the
                  specified columns
         """
-
+        # Look for default aggregation column
         if agg is None:
             if isinstance(source, cudf.DataFrame):
                 agg = any(source.columns[-1])
@@ -168,13 +179,15 @@ class Canvas:
             else:
                 raise ValueError("input should be cudf DataFrame or Numba device ndarray")
         
-        agg.validate(source)
+        agg.validate(source) # Check source validity
 
         sx, tx = self.x_st
         sy, ty = self.y_st
 
+        # Copying columns in Numba device ndarray
         if isinstance(source, cudf.DataFrame):
             mini = np.finfo(np.float64).min
+            # ** Replace nan values with minimal value -1.79e+308
             source.fillna({x: mini, y: mini, agg.column: mini}, inplace=True)
             x_coords = source.as_gpu_matrix([x]).ravel(order='F')
             y_coords = source.as_gpu_matrix([y]).ravel(order='F')
@@ -184,13 +197,20 @@ class Canvas:
             y_coords = device_to_device_copy(source, y)
             agg_data = device_to_device_copy(source, agg.column)
 
+        # Apply axis transformations
         self.x_axis.data_mapper(x_coords)
         self.y_axis.data_mapper(y_coords)
 
+        # Apply scale and transform transformations
         blockspergrid = int(ceil(len(agg_data) / maxThreadsPerBlock))
         map_onto_pixel[blockspergrid, maxThreadsPerBlock](x_coords, sx, tx)
         map_onto_pixel[blockspergrid, maxThreadsPerBlock](y_coords, sy, ty)
         
+        # Sets data for aggregation
         agg.set_scheme("lines", self.plot_width, self.plot_height, len(agg_data))
+
+        # Apply reduction
         agg.set_data(x_coords, y_coords, agg_data)
+
+        # Apply reduction
         return agg.reduct()

@@ -9,7 +9,7 @@ maxThreadsPerBlock = cuda.get_current_device().MAX_THREADS_PER_BLOCK
 
 
 @cuda.jit('void(float64[:,:])')
-def memset_k(input):
+def memset_k(input): # Memset aggregation array to 0
     x, y = cuda.grid(2)
     N, M = input.shape
     if x >= 0 and x < N and y >= 0 and y < M:
@@ -17,7 +17,7 @@ def memset_k(input):
 
 
 @cuda.jit('void(float64[:], float64[:], float64[:,:])')
-def count_k(x_coords, y_coords, agg):
+def count_k(x_coords, y_coords, agg): # Count reduction for points
     i = cuda.grid(1)
     n_points = x_coords.size
 
@@ -30,7 +30,7 @@ def count_k(x_coords, y_coords, agg):
 
 
 @cuda.jit('void(float64[:], float64[:], float64[:,:])')
-def any_k(x_coords, y_coords, agg):
+def any_k(x_coords, y_coords, agg): # Any reduction for points
     i = cuda.grid(1)
     n_points = x_coords.shape[0]
 
@@ -43,7 +43,7 @@ def any_k(x_coords, y_coords, agg):
 
 
 @cuda.jit('void(float64[:], float64[:], float64[:,:])')
-def any_lines_k(x_coords, y_coords, agg):
+def any_lines_k(x_coords, y_coords, agg): # Any reduction for lines
     i = cuda.grid(1)
     n_points = x_coords.shape[0]
 
@@ -87,11 +87,11 @@ def any_lines_k(x_coords, y_coords, agg):
                     err += d_y
                 y += s_y
         if x >= 0 and x < N and y >= 0 and y < M:     
-            agg[y, x] = 1.0
+            agg[y, x] = 1.0 # Draw segment by setting all pixels to 1
 
 
 @cuda.jit('void(float64[:], float64[:], float64[:], float64[:,:])')
-def sum_k(x_coords, y_coords, agg_data, agg):
+def sum_k(x_coords, y_coords, agg_data, agg): # Sum reduction for points
     i = cuda.grid(1)
     n_points = x_coords.shape[0]
 
@@ -104,7 +104,7 @@ def sum_k(x_coords, y_coords, agg_data, agg):
 
 
 @cuda.jit('void(float64[:], float64[:], float64[:], float64[:,:])')
-def max_k(x_coords, y_coords, agg_data, agg):
+def max_k(x_coords, y_coords, agg_data, agg): # Max reduction for points
     i = cuda.grid(1)
     n_points = x_coords.shape[0]
 
@@ -121,11 +121,11 @@ class Reduction:
         self.column = column
 
     def set_scheme(self, glyph_type, width, height, n_points):
-        self.agg = cuda.device_array((height, width), dtype=np.float64)
-        self.glyph_type = glyph_type
-        self.set_agg(width, height)
-        self.tpb = maxThreadsPerBlock
-        self.bpg = int(ceil(n_points / maxThreadsPerBlock))
+        self.agg = cuda.device_array((height, width), dtype=np.float64) # Allocate aggregation array on GPU
+        self.set_agg(width, height) # Memset aggregation array to 0
+        self.glyph_type = glyph_type # Lines or points
+        self.tpb = maxThreadsPerBlock # Compute CUDA thread per block
+        self.bpg = int(ceil(n_points / maxThreadsPerBlock)) # Compute CUDA block per grid
 
     def set_data(self, x_coords, y_coords, agg_data):
         self.x_coords = x_coords
@@ -136,7 +136,7 @@ class Reduction:
         blockDim = int(np.sqrt(maxThreadsPerBlock))
         memset_tpb = (blockDim, blockDim)
         memset_bpg = (int(ceil(height / blockDim)), int(ceil(width / blockDim)))
-        memset_k[memset_bpg, memset_tpb](self.agg)
+        memset_k[memset_bpg, memset_tpb](self.agg) # Memset aggregation array to 0
 
     def validate(self, data):
         if isinstance(data, cudf.DataFrame):

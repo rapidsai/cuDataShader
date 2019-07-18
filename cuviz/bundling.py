@@ -7,7 +7,7 @@ maxThreadsPerBlock = cuda.get_current_device().MAX_THREADS_PER_BLOCK
 
 
 @cuda.jit('void(float64[:,:], int64[:,:], float64[:,:])')
-def connect_edges_k(nodes, edges, connected_nodes):
+def connect_edges_k(nodes, edges, connected_nodes): # Connect edges kernel
     i = cuda.grid(1)
 
     if i < edges.shape[0]:
@@ -28,17 +28,20 @@ def connect_edges(nodes, edges):
     nodes = nodes.as_gpu_matrix()
     edges = edges.as_gpu_matrix()
     n_edges = edges.shape[0]
+    # Allocate for storing lines
     connected_nodes = cuda.device_array((n_edges * 3, 2), dtype=np.float64)
 
     bpg = int(ceil(n_edges / maxThreadsPerBlock))
+    # Apply connect edges kernel
     connect_edges_k[bpg, maxThreadsPerBlock](nodes, edges, connected_nodes)
+    # Convert to cuDF DataFrame
     gdf = cudf.DataFrame.from_gpu_matrix(connected_nodes)
     gdf.rename({0: 'x', 1: 'y'}, copy=False, inplace=True)
     return gdf
 
 
 @cuda.jit('void(float64[:,:], int32[:,:], float64[:,:,:])')
-def connect_nodes_k(nodes_original, edges, nodes):
+def connect_nodes_k(nodes_original, edges, nodes): # Connect nodes kernel
     i = cuda.grid(1)
 
     if i < edges.shape[0]:
@@ -51,14 +54,15 @@ def connect_nodes_k(nodes_original, edges, nodes):
         nodes[i, 1, 1] = nodes_original[v2, 1] # copy v2's y
 
 
-def connect_nodes(nodes_original, edges, nodes):
+def connect_nodes(nodes_original, edges, nodes): # Used to initialise GPU FDEB Edge Bundling
     n_edges = edges.shape[0]
     bpg = int(ceil(n_edges / maxThreadsPerBlock))
+    # Apply connect nodes kernel
     connect_nodes_k[bpg, maxThreadsPerBlock](nodes_original, edges, nodes)
 
 
 @cuda.jit('void(float64[:,:,:], float64, float64[:])')
-def compute_stiffness_k(nodes, K, stiffness):
+def compute_stiffness_k(nodes, K, stiffness): # Stiffness kernel : compute edge-wise stiffness factor
     i = cuda.grid(1)
 
     if i < nodes.shape[0]:
@@ -74,11 +78,11 @@ def compute_stiffness_k(nodes, K, stiffness):
 def compute_stiffness(nodes, K, stiffness):
     n_edges = nodes.shape[0]
     bpg = int(ceil(n_edges / maxThreadsPerBlock))
-    compute_stiffness_k[bpg, maxThreadsPerBlock](nodes, K, stiffness)
+    compute_stiffness_k[bpg, maxThreadsPerBlock](nodes, K, stiffness) # Apply stiffness kernel
 
 
 @cuda.jit('void(float64[:,:,:], float64[:,:])')
-def compatibility_k(nodes, c_matrix):
+def compatibility_k(nodes, c_matrix): # Compatibility kernel : compute pairwise edge compatibility
     x, y = cuda.grid(2)
     N, M = c_matrix.shape
 
@@ -126,18 +130,18 @@ def compatibility_k(nodes, c_matrix):
 
 def compute_compatibility_matrix(nodes):
     n_edges = int(nodes.shape[0])
-    blockDim = int(sqrt(maxThreadsPerBlock) / 2) # to get enough ressources
+    blockDim = int(sqrt(maxThreadsPerBlock) / 2) # to get enough ressources per block
     tpb = (blockDim, blockDim)
     gridDim = int(ceil(n_edges / blockDim))
     bpg = (gridDim, gridDim)
     compatibility_matrix = cuda.device_array((n_edges, n_edges), dtype=np.float64)
-    compatibility_k[bpg, tpb](nodes, compatibility_matrix)
+    compatibility_k[bpg, tpb](nodes, compatibility_matrix) # Apply compatibility kernel
 
     return compatibility_matrix
 
 
 @cuda.jit('void(float64[:,:,:], float64[:,:,:])')
-def copy_nodes_k(nodes, nodes_copy):
+def copy_nodes_k(nodes, nodes_copy): # Nodes copy kernel
     iEdge, iSubdiv = cuda.grid(2)
     if iEdge < nodes.shape[0]:
         nodes_copy[iEdge, iSubdiv, 0] = nodes[iEdge, iSubdiv, 0]
@@ -207,13 +211,14 @@ def regenerate_subdivisions(nodes, P):
     bpg = (int(ceil(n_edges / tpb[0])), 1)
 
     nodes_copy = cuda.device_array((n_edges, nMeasures, 2), dtype=np.float64)
-    copy_nodes_k[bpg, tpb](nodes, nodes_copy)
+    copy_nodes_k[bpg, tpb](nodes, nodes_copy) # Copy nodes before subdivision
 
     d_xs = cuda.device_array((n_edges, nMeasures), dtype=np.float64)
     d_ys = cuda.device_array((n_edges, nMeasures), dtype=np.float64)
     segment_lengths = cuda.device_array((n_edges, nMeasures), dtype=np.float64)
     edge_lengths = cuda.device_array(n_edges, dtype=np.float64)
 
+    # Apply subdivision of each edges
     regenerate_subdivisions_k[bpg, tpb](nodes, nodes_copy, P, d_xs, d_ys, segment_lengths, edge_lengths)
 
 
@@ -353,7 +358,11 @@ def as_edges(nodes):
 
 def fdeb_bundle(nodes, edges, params=None):
     """
-    Run FDEB Edge Bundling algorithm
+    Run GPU FDEB Edge Bundling algorithm.
+
+    References :
+        - https://ieeexplore.ieee.org/document/6385238
+        - http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.212.7989&rep=rep1&type=pdf
     """
 
     if params is None:
@@ -373,6 +382,7 @@ def fdeb_bundle(nodes, edges, params=None):
 
     max_P = 2 ** (C-1)
 
+    # Convert cuDF DataFrames to Numba Cuda ndarray
     nodes_original = nodes.as_gpu_matrix()
     edges = edges.as_gpu_matrix()
 
@@ -406,7 +416,7 @@ def fdeb_bundle(nodes, edges, params=None):
             # calculate electrostatic force
             compute_electrostatic_force(nodes, P, compatibility_matrix, forces)
 
-            # update position
+            # update position accordingly
             update_positions(nodes, P, forces, S)
 
         # update parameters
@@ -414,4 +424,5 @@ def fdeb_bundle(nodes, edges, params=None):
         I = int(I * (2.0 / 3.0))
         S /= 2.0
     
+    # Generate cuDF DataFrame to display segments with a lines canvas
     return as_edges(nodes)

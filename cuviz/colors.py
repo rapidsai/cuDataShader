@@ -158,7 +158,7 @@ Hot = ["black", "maroon", "darkred", "red", "orangered", "darkorange", "orange",
 
 Elevation = ["aqua", "sandybrown", "limegreen", "green", "green", "darkgreen", "saddlebrown", "gray", "white"]
 
-def build_shades(cmap):
+def build_shades(cmap): # Get RGB values of list of colors and loads it to GPU
     h_shades = np.ndarray(len(cmap) * 3, dtype=np.uint8)
     for i, color in enumerate(cmap):
         idx = i * 3

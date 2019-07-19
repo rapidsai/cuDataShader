@@ -8,16 +8,19 @@ from math import ceil, log
 
 maxThreadsPerBlock = cuda.get_current_device().MAX_THREADS_PER_BLOCK
 
+# Mask value (-1.79e+308 minimal float)
+mask_value = np.finfo(np.float64).min
+
 
 @cuda.jit('void(float64[:], float64, float64)')
 def map_onto_pixel(input, scale, transform):
     i = cuda.grid(1)
     if i < input.shape[0]:
         val = input[i]
-        if val > -1.79e+308: # Only apply if value is not minimal (see **)
+        if val > mask_value: # Only apply if value is not mask value (-1.79e+308 minimal float)
             input[i] = int((val * scale) + transform) # Apply transformation
         else:
-            input[i] = np.nan # Reset to nan after replacement to minimal == -1.79e+308
+            input[i] = np.nan # Set to nan when encountering mask value
 
 
 @cuda.jit('void(float64[:], float64[:,:], int32)')
@@ -60,7 +63,7 @@ class LogAxis(Axis):
         i = cuda.grid(1)
         if i < input.size:
             val = input[i]
-            if val > -1.79e+308: # Only apply if value is not minimal (see **)
+            if val > 0.0: # Only valid for positive values
                 input[i] = log(val)
 
     def data_mapper(self, x):
@@ -186,9 +189,8 @@ class Canvas:
 
         # Copying columns in Numba device ndarray
         if isinstance(source, cudf.DataFrame):
-            mini = np.finfo(np.float64).min
-            # ** Replace nan values with minimal value -1.79e+308
-            source.fillna({x: mini, y: mini, agg.column: mini}, inplace=True)
+            # Replace nan values with mask value (-1.79e+308 minimal float)
+            source.fillna({x: mask_value, y: mask_value, agg.column: mask_value}, inplace=True)
             x_coords = source.as_gpu_matrix([x]).ravel(order='F')
             y_coords = source.as_gpu_matrix([y]).ravel(order='F')
             agg_data = source.as_gpu_matrix([agg.column]).ravel(order='F')

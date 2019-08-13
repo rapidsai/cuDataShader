@@ -394,6 +394,7 @@ class Image():
         return fromarray(np.flip(self.data, axis=0), 'RGBA')
 
     def to_bytesio(self, format='png'):
+        from io import BytesIO
         fp = BytesIO()
         self.to_pil().save(fp, format)
         fp.seek(0)

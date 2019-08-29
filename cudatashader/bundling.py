@@ -40,7 +40,7 @@ def connect_edges(nodes, edges):
     return gdf
 
 
-@cuda.jit('void(float64[:,:], int32[:,:], float64[:,:,:])')
+@cuda.jit('void(float64[:,:], int64[:,:], float64[:,:,:])')
 def connect_nodes_k(nodes_original, edges, nodes): # Connect nodes kernel
     i = cuda.grid(1)
 
@@ -389,7 +389,7 @@ def fdeb_bundle(nodes, edges, params=None):
     n_edges = edges.shape[0]
     nodes = cuda.device_array((n_edges, max_P + 2, 2), dtype=np.float64)
 
-    # seting up nodes buffer on GPU
+    # setting up nodes buffer on GPU
     connect_nodes(nodes_original, edges, nodes)
     del nodes_original  # no more use
     del edges           # no more use

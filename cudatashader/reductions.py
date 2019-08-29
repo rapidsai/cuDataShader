@@ -54,7 +54,7 @@ def any_lines_k(x_coords, y_coords, agg): # Any reduction for lines
             return # no segment
         n2_x = x_coords[i+1]
         n2_y = y_coords[i+1]
-        if isnan(n2_x) or isnan(n2_x):
+        if isnan(n2_x) or isnan(n2_y):
             return # last point of edge, no segment to display
 
         M, N = agg.shape

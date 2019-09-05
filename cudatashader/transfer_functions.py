@@ -4,7 +4,7 @@ from PIL.Image import fromarray
 from numba import cuda
 import numpy as np
 from math import ceil, log1p
-
+import pandas as pd
 
 maxThreadsPerBlock = cuda.get_current_device().MAX_THREADS_PER_BLOCK
 
@@ -369,7 +369,7 @@ def stack_k(img, dest, composite_type): # Stack kernel
         composite_k(r, g, b, a, dest[x, y], composite_type)
 
 
-def stack(img1, img2, how="over"):
+def stack_pair(img1, img2, how="over"):
     if img1.data.shape[0] != img2.data.shape[0] or img1.data.shape[1] != img2.data.shape[1]:
         raise ValueError("Images must have same shapes")
 
@@ -383,6 +383,30 @@ def stack(img1, img2, how="over"):
 
     return Image(dest.copy_to_host()) # Generate displayable image
 
+def stack(*imgs, how="over"):
+    """Combine images together, overlaying later images onto earlier ones.
+    Parameters
+    ----------
+    imgs : iterable of Image
+        The images to combine.
+    how : str, optional
+        The compositing operator to combine pixels. Default is `'over'`.
+    """
+    if not imgs:
+        raise ValueError("No images passed in")
+    
+    if not isinstance(imgs[0], Image):
+        raise TypeError("Expected `Image`, got: `{0}`".format(type(imgs[0])))
+    
+    final_image = imgs[0]
+
+    for i in range(1, len(imgs)):
+        if not isinstance(imgs[i], Image):
+            raise TypeError("Expected `Image`, got: `{0}`".format(type(imgs[i])))
+
+        final_image = stack_pair(final_image, imgs[i])
+    
+    return final_image
 
 class Image():
     border=1

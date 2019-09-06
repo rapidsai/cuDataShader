@@ -116,7 +116,7 @@ class Canvas:
         # Look for default aggregation column
         if agg is None:
             if isinstance(source, cudf.DataFrame):
-                agg = count(source.columns[-1])
+                agg = count(y)
             elif isinstance(data, DeviceNDArrayBase):
                 agg = count(2)
             else:
@@ -176,7 +176,7 @@ class Canvas:
         # Look for default aggregation column
         if agg is None:
             if isinstance(source, cudf.DataFrame):
-                agg = any(source.columns[-1])
+                agg = any(y)
             elif isinstance(data, DeviceNDArrayBase):
                 agg = any(2)
             else:

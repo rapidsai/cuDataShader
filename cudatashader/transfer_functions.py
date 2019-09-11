@@ -7,7 +7,7 @@ from math import ceil, log1p
 import pandas as pd
 
 maxThreadsPerBlock = cuda.get_current_device().MAX_THREADS_PER_BLOCK
-
+np.seterr(divide='ignore', invalid='ignore')
 
 @cuda.jit('void(float64[:], float64)')
 def substract_k(input, to_substract): # Substract scalar to vector

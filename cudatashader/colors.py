@@ -151,7 +151,8 @@ color_lookup = {
   'white': (255, 255, 255),
   'whitesmoke': (245, 245, 245),
   'yellow': (255, 255, 0),
-  'yellowgreen': (154, 205, 50)
+  'yellowgreen': (154, 205, 50),
+  'rapidspurple':(135, 53, 251)
 }
 
 Hot = ["black", "maroon", "darkred", "red", "orangered", "darkorange", "orange", "gold", "yellow", "white"]

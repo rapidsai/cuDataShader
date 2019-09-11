@@ -159,11 +159,21 @@ Hot = ["black", "maroon", "darkred", "red", "orangered", "darkorange", "orange",
 
 Elevation = ["aqua", "sandybrown", "limegreen", "green", "green", "darkgreen", "saddlebrown", "gray", "white"]
 
+def convert_hex_code_to_rgb_tuple(hex_code):
+    h = hex_code.lstrip('#')
+    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+
+
 def build_shades(cmap): # Get RGB values of list of colors and loads it to GPU
     h_shades = np.ndarray(len(cmap) * 3, dtype=np.uint8)
     for i, color in enumerate(cmap):
         idx = i * 3
-        h_shades[[idx, idx + 1, idx + 2]] = color_lookup[color]
+        if type(color) == str and color in color_lookup:
+          h_shades[[idx, idx + 1, idx + 2]] = color_lookup[color]
+        elif type(color) == str and color[0] == '#' and len(color[1:]) == 6:
+          h_shades[[idx, idx + 1, idx + 2]] = convert_hex_code_to_rgb_tuple(color)
+        elif type(color) == tuple and len(color) == 3:
+          h_shades[[idx, idx + 1, idx + 2]] = color
 
     h_shades = h_shades.reshape((len(cmap), 3))
 

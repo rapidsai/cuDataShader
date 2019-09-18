@@ -15,6 +15,41 @@ def memset_k(input): # Memset aggregation array to 0
     if x >= 0 and x < N and y >= 0 and y < M:
         input[x, y] = 0.0
 
+@cuda.jit('void(float64[:], float64[:], float64[:], float64[:,:], float64[:,:], float64[:,:])')
+def mean_k(x_coords, y_coords, agg_data, sum_agg, count_agg, agg): # Sum reduction for points
+    i = cuda.grid(1)
+    n_points = x_coords.shape[0]
+
+    if i < n_points:
+        N, M = agg.shape
+        nx = int(x_coords[i])
+        ny = int(y_coords[i])
+        if nx >= 0 and nx < M and ny >= 0 and ny < N:
+            cuda.atomic.add(sum_agg, (ny, nx), agg_data[i])
+            cuda.atomic.add(count_agg, (ny, nx), 1.0)
+    
+    start = cuda.grid(1)
+    stride = cuda.gridsize(1)
+
+    for i in range(start, n_points, stride):
+        N, M = agg.shape
+        nx = int(x_coords[i])
+        ny = int(y_coords[i])
+        if nx >= 0 and nx < M and ny >= 0 and ny < N:
+            agg[ny][nx] = sum_agg[ny][nx]/count_agg[ny][nx]
+
+
+@cuda.jit('void(float64[:], float64[:], float64[:], float64[:,:])')
+def sum_k(x_coords, y_coords, agg_data, agg): # Sum reduction for points
+    i = cuda.grid(1)
+    n_points = x_coords.shape[0]
+
+    if i < n_points:
+        N, M = agg.shape
+        nx = int(x_coords[i])
+        ny = int(y_coords[i])
+        if nx >= 0 and nx < M and ny >= 0 and ny < N:
+            cuda.atomic.add(agg, (ny, nx), agg_data[i])
 
 @cuda.jit('void(float64[:], float64[:], float64[:,:])')
 def count_k(x_coords, y_coords, agg): # Count reduction for points
@@ -88,20 +123,6 @@ def any_lines_k(x_coords, y_coords, agg): # Any reduction for lines
                 y += s_y
         if x >= 0 and x < N and y >= 0 and y < M:     
             agg[y, x] = 1.0 # Draw segment by setting all pixels to 1
-
-
-@cuda.jit('void(float64[:], float64[:], float64[:], float64[:,:])')
-def sum_k(x_coords, y_coords, agg_data, agg): # Sum reduction for points
-    i = cuda.grid(1)
-    n_points = x_coords.shape[0]
-
-    if i < n_points:
-        N, M = agg.shape
-        nx = int(x_coords[i])
-        ny = int(y_coords[i])
-        if nx >= 0 and nx < M and ny >= 0 and ny < N:
-            cuda.atomic.add(agg, (ny, nx), agg_data[i])
-
 
 @cuda.jit('void(float64[:], float64[:], float64[:], float64[:,:])')
 def max_k(x_coords, y_coords, agg_data, agg): # Max reduction for points
@@ -182,4 +203,12 @@ class max(Reduction):
     def reduct(self):
         if self.glyph_type == "points":
             max_k[self.bpg, self.tpb](self.x_coords, self.y_coords, self.agg_data, self.agg)
+        return self.agg
+
+class mean(Reduction):
+    def reduct(self):
+        if self.glyph_type == "points":
+            self.sum_agg = cuda.device_array(self.agg.shape, dtype=np.float64)
+            self.count_agg = cuda.device_array(self.agg.shape, dtype=np.float64)
+            mean_k[self.bpg, self.tpb](self.x_coords, self.y_coords, self.agg_data,self.sum_agg, self.count_agg, self.agg)
         return self.agg

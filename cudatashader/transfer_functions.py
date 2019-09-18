@@ -195,6 +195,21 @@ def memset(input):
     bpg = (int(ceil(input.shape[0] / blockDim)), int(ceil(input.shape[1] / blockDim)))
     memset_k[bpg, tpb](input)
 
+def _rect_vertical_mask(px):
+    """Produce a vertical rectangle mask with truth values in ``(2 * px + 1) * ((2 * px + 1)/2)``"""
+    px = int(px)
+    w = 2 * px + 1
+    zero_bool = np.zeros((w,px), dtype='bool')
+    x_bool = np.ones((w, w - px), dtype='bool')
+    return cuda.to_device(np.concatenate((x_bool,zero_bool), axis=1))
+
+def _rect_horizontal_mask(px):
+    """Produce a horizontal rectangle mask with truth values in ``((2 * px + 1)/2) * (2 * px + 1)``"""
+    px = int(px)
+    w = 2 * px + 1
+    zero_bool = np.zeros((px,w), dtype='bool') 
+    x_bool = np.ones((w - px, w), dtype='bool')
+    return cuda.to_device(np.concatenate((x_bool,zero_bool), axis=0))
 
 def _square_mask(px):
     """Produce a square mask with sides of length ``2 * px + 1``"""
@@ -211,7 +226,7 @@ def _circle_mask(r):
     return cuda.to_device(x_bool)
 
 
-_mask_lookup = {'square': _square_mask, 'circle': _circle_mask}
+_mask_lookup = {'square': _square_mask, 'circle': _circle_mask, 'rect_vertical':_rect_vertical_mask, 'rect_horizontal':_rect_horizontal_mask}
 
 
 @cuda.jit('void(float64, float64, float64, float64, float64, float64, float64, float64, uint8[:])', device=True, inline=True)

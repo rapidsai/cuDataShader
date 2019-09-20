@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>cuDatashader 3D UMAP Demo</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+        <link type="text/css" rel="stylesheet" href="main.css">
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+		<style>
+			body {
+				background-color: black;
+			}
+            #render {
+                width: 100vw;
+                height: 100vh;
+                position: fixed;
+                z-index: -10;
+            }
+		</style>
+	</head>
+
+	<body>
+        <img id="render">
+		<script type="module">
+
+			import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/108/three.module.js';
+
+			import { OrbitControls } from './OrbitControls.js';
+
+
+			var camera, controls, scene, renderer, pauser, lastrender;
+
+			init();
+			animate();
+
+			function init() {
+
+                pauser = false;
+
+				camera = new THREE.PerspectiveCamera( 60, window.innerWidth / window.innerHeight, 0.001, 1000 );
+
+                scene = new THREE.Scene();
+
+				// renderer
+
+				renderer = new THREE.WebGLRenderer( { antialias: true, alpha: true } );
+                renderer.setClearColor( 0x000000, 0 );
+				renderer.setPixelRatio( window.devicePixelRatio );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				document.body.appendChild( renderer.domElement );
+				controls = new OrbitControls( camera, renderer.domElement );
+                controls.enablePan = false;
+				//controls.enableDamping = true;
+				//controls.dampingFactor = 0.1;
+				//controls.screenSpacePanning = false;
+				controls.minDistance = 0.1;
+				controls.maxDistance = 0.6;
+				controls.addEventListener( 'change', render );
+				window.addEventListener( 'resize', onWindowResize, false );
+				render();
+			}
+
+			function onWindowResize() {
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				controls.handleResize();
+				render();
+			}
+
+			function animate() {
+				requestAnimationFrame( animate );
+				controls.update();
+			}
+
+            function call_renderer(resolution) {
+                var reduction_factor = 3.0;
+                var render_width = window.innerWidth;
+                var render_height = window.innerHeight;
+                if (resolution !== 'high') {
+                    render_width = parseInt(render_width / reduction_factor);
+                    render_height = parseInt(render_height / reduction_factor);
+                }
+
+                $.ajax({
+                    url: 'http://0.0.0.0:8786/render.png',
+                    headers: { 'view_matrix': JSON.stringify({ matrix: camera.matrixWorld.elements }),
+                               'zoom': camera.position.length(),
+                               'render_width': render_width,
+                               'render_height': render_height },
+                    success: function(response) { $("#render").attr("src", "data:image/png;base64," + response); }
+                });
+            }
+
+			function render() {
+                if (!pauser) {               
+                    call_renderer('low');
+
+                    lastrender = new Date().getTime();
+                    pauser = true;
+                    setTimeout(function(){ pauser = false; }, 15);
+
+                    setTimeout(function(){
+                        var elapsed = new Date().getTime() - lastrender;
+                        if (elapsed > 499)
+                        {
+                            call_renderer('high');
+                        }
+                     }, 500);
+
+                }
+			}
+
+
+		</script>
+
+	</body>
+</html>

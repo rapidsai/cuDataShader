@@ -1,12 +1,11 @@
-# <div align="left"><img src="https://rapids.ai/assets/images/rapids_logo.png" width="90px"/>&nbsp;___PROJECT___</div>
+# <div align="left"><img src="https://rapids.ai/assets/images/rapids_logo.png" width="90px"/>&nbsp; cuDataShader</div>
 
-The [RAPIDS](https://rapids.ai) cuDataShader 
+The [RAPIDS](https://rapids.ai) cuDataShader - GPU Accelerated
 
-## About
+![cuDataShaderGeo](/fies/cuDataShader.png)
 
-cuDatashader is a port of Datashader to CUDA technology allowing GPU acceleration of the rendering. It allows faster rendering of complex visualizations containing billions of points. It can also be used for realtime applications or as a fast high resolution video renderer.
+cuDataShader is a port of PyViz's [Datashader](http://datashader.org/) using GPU CUDA technology to enable up to 50x acceleration in visualization render times. Started as an intern project, cuDatashader is still in its infancy and is not feature complete with Datashader. Plans are in the works to activly work with the PyViz group to implement or extend Datashader with further GPU acceleration. cuDataShader is a chart component of the RAPIDS [cuXfilter](https://github.com/rapidsai/cuxfilter) library.
 
-cuDatashader is still in its infancy and might contain some bugs. Only some of Datashader's features are currently implemented.
 
 ## Implemented features
 
@@ -17,7 +16,9 @@ cuDatashader is still in its infancy and might contain some bugs. Only some of D
 
 ## Quick Start
 
-Please refer to the documentation of Datashader : [http://datashader.org/user_guide/index.html](http://datashader.org/user_guide/index.html). The cuDatashader features work the same way as their original counterparts except that the functions take cuDF DataFrames instead of Pandas DataFrames.
+The fastest way to get started is to use cuDataShader as part of the RAPIDS [cuXfilter](https://github.com/rapidsai/cuxfilter) library. 
+
+Otherwise, please refer to the documentation of Datashader [http://datashader.org/user_guide/index.html](http://datashader.org/user_guide/index.html) for usage guides. The cuDatashader features API is built to mirror the original, except that the functions take cuDF DataFrames instead of Pandas DataFrames.
 
 ## Install cuDataShader
 

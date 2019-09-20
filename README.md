@@ -4,7 +4,7 @@ The [RAPIDS](https://rapids.ai) cuDataShader - GPU Accelerated
 
 ![cuDataShaderGeo](https://github.com/rapidsai/cuDataShader/blob/master/files/cuDataShader.png)
 
-cuDataShader is a port of PyViz's [Datashader](http://datashader.org/) using GPU CUDA technology to enable up to 50x acceleration in visualization render times. Started as an intern project, cuDatashader is still in its infancy and is not feature complete with Datashader. Plans are in the works to activly work with the PyViz group to implement or extend Datashader with further GPU acceleration. cuDataShader is a chart component of the RAPIDS [cuXfilter](https://github.com/rapidsai/cuxfilter) library.
+cuDataShader is a port of PyViz's [Datashader](http://datashader.org/) using GPU CUDA technology to enable up to 50x acceleration in visualization render times. Started as an intern project, cuDatashader is still in its infancy and is not feature complete with Datashader. Plans are in the works to actively work with the PyViz group to implement or extend Datashader with further GPU acceleration. cuDataShader is a chart component of the RAPIDS [cuXfilter](https://github.com/rapidsai/cuxfilter) library.
 
 
 ## Implemented features

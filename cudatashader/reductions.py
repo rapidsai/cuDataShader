@@ -6,10 +6,8 @@ import cupy
 from math import ceil, isnan
 
 
-try:
-    maxThreadsPerBlock = cuda.get_current_device().MAX_THREADS_PER_BLOCK
-except:
-    maxThreadsPerBlock = 64
+def maxThreadsPerBlock():
+    return cuda.get_current_device().MAX_THREADS_PER_BLOCK
 
 @cuda.jit('void(float64[:,:])')
 def memset_k(input): # Memset aggregation array to 0
@@ -148,8 +146,8 @@ class Reduction:
         self.agg = cuda.device_array((height, width), dtype=np.float64) # Allocate aggregation array on GPU
         self.set_agg(width, height) # Memset aggregation array to 0
         self.glyph_type = glyph_type # Lines or points
-        self.tpb = maxThreadsPerBlock # Compute CUDA thread per block
-        self.bpg = int(ceil(n_points / maxThreadsPerBlock)) # Compute CUDA block per grid
+        self.tpb = maxThreadsPerBlock() # Compute CUDA thread per block
+        self.bpg = int(ceil(n_points / maxThreadsPerBlock())) # Compute CUDA block per grid
 
     def set_data(self, x_coords, y_coords, agg_data):
         self.x_coords = x_coords
@@ -157,7 +155,7 @@ class Reduction:
         self.agg_data = agg_data
 
     def set_agg(self, width, height):
-        blockDim = int(np.sqrt(maxThreadsPerBlock))
+        blockDim = int(np.sqrt(maxThreadsPerBlock()))
         memset_tpb = (blockDim, blockDim)
         memset_bpg = (int(ceil(height / blockDim)), int(ceil(width / blockDim)))
         memset_k[memset_bpg, memset_tpb](self.agg) # Memset aggregation array to 0

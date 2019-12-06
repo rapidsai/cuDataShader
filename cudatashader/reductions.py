@@ -2,11 +2,14 @@ from numba import cuda
 import numpy as np
 import cudf
 from numba.cuda.cudadrv.devicearray import DeviceNDArrayBase
+import cupy
 from math import ceil, isnan
 
 
-maxThreadsPerBlock = cuda.get_current_device().MAX_THREADS_PER_BLOCK
-
+try:
+    maxThreadsPerBlock = cuda.get_current_device().MAX_THREADS_PER_BLOCK
+except:
+    maxThreadsPerBlock = 64
 
 @cuda.jit('void(float64[:,:])')
 def memset_k(input): # Memset aggregation array to 0
@@ -168,6 +171,11 @@ class Reduction:
             if not np.issubdtype(data[self.column].dtype, np.float64):
                 raise ValueError("must use float64")
         elif isinstance(data, DeviceNDArrayBase):
+            if len(data.shape) != 2 or data.shape[1] < 3:
+                raise ValueError("input should have at least 3 columns for x, y and aggregation value")
+            if data.dtype != np.float64:
+                raise ValueError("must use float64")
+        elif isinstance(data, cupy.core.core.ndarray):
             if len(data.shape) != 2 or data.shape[1] < 3:
                 raise ValueError("input should have at least 3 columns for x, y and aggregation value")
             if data.dtype != np.float64:

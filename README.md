@@ -1,4 +1,5 @@
 # <div align="left"><img src="https://rapids.ai/assets/images/rapids_logo.png" width="90px"/>&nbsp; cuDataShader</div>
+## NOTE: This repository is for experimental features only and NOT actively maintained. Full cuDF functionality is now natively available in [Datashader](https://datashader.org/user_guide/Performance.html#Data-objects). 
 
 The [RAPIDS](https://rapids.ai) cuDataShader - GPU Accelerated
 
